@@ -1,0 +1,134 @@
+---
+title: "BlogPost#2"
+format: 
+  docx:
+    toc: true
+    toc-depth: 2
+    toc-title: Contents
+    toc-location: left
+    code-fold: false
+    html-math-method: katex
+    theme: flatly
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    citations-hover: true
+    footnotes-hover: true
+    font-size: 80%
+editor: source
+---
+
+## In a way, failure is success
+
+This week's blog post is going to focus primarily on visualization, with some small attention to inherent network attributes. So let's get that network graph first!
+
+Load in the data
+```{r}
+rm(list=ls())
+
+#MacOSPaths
+#redditData <- read.csv("~/Documents/School/DACSS/695N/NetworkAnalysisFinalProject/Data/edgelist.csv")
+#subredditAttr <- read.csv("~/Documents/School/DACSS/695N/NetworkAnalysisFinalProject/Data/edgeattr.csv")
+
+#LinuxPaths
+redditData <- read.csv("~/Developer/NetworkAnalysisFinal-master/Data/edgelist.csv")
+nodeAttr <- read.csv("~/Developer/NetworkAnalysisFinal-master/Data/nodeattr.csv")
+```
+
+Let's get some really basic descriptives
+```{r}
+library(glue)
+library(dplyr)
+library(igraph)
+library(GGally)
+library(network)
+library(bipartite)
+library(ggraph)
+```
+
+```{r}
+glue('Number of Entries: {dim(redditData)[1]}')
+glue('Number of Unique Mods: {sum(nodeAttr$Type == "mod")}')
+glue('Number of Subreddits: {sum(nodeAttr$Type == "sub")}')
+```
+
+There's about a couple thousand subreddits that were
+
+Trying the igraph way
+```{r}
+reddit.ig <- graph_from_data_frame(
+  redditData,
+  directed = F
+)
+reddit.ig
+```
+
+```{r}
+nodeAttr <- nodeAttr[match(V(reddit.ig)$name, nodeAttr$Name), ]
+V(reddit.ig)$type <- nodeAttr$Type
+V(reddit.ig)$category <- nodeAttr$Category
+V(reddit.ig)$subcount <- nodeAttr$SubscriberCount
+V(reddit.ig)$nummods <- nodeAttr$NumberOfModerators
+```
+
+```{r}
+V(reddit.ig)$shape <- ifelse(V(reddit.ig)$type == "mod", "circle","triangle")
+V(reddit.ig)$color <- ifelse(V(reddit.ig)$type == "mod", "blue","red")
+V(reddit.ig)$vertexlabel <- ifelse(V(reddit.ig)$type == "mod", "", V(reddit.ig)$name)
+```
+
+```{r}
+#ggraph(reddit.ig, layout = 'fr', niter=1000) +
+ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(reddit.ig)$category, shape = V(reddit.ig)$shape), show.legend = F)+
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_diagonal() +
+  theme(
+    plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins
+  )
+```
+
+```{r}
+#ggraph(reddit.ig, layout = 'fr', niter=1000) +
+ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(reddit.ig)$category, shape = V(reddit.ig)$shape), show.legend = T)+
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_diagonal() +
+  theme(
+    plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins
+  )
+```
+```
+
+
+```{r}
+#plot(
+#  x = reddit.ig,
+#  #layout = layout_with_fr(reddit.ig,dim=3), 
+#  layout = layout_with_fr, 
+#  vertex.size=0.5,
+#  #vertex.label=V(reddit.ig)$vertexlabel,
+#  vertex.label = NA,
+#  #curved=T,
+#  #vertex.label.cex = .8,
+#  #vertex.label.dist = 1.5,
+#  #vertex.label.color = "black",
+#  vertex.color = V(reddit.ig)$color,
+#  #Why is color ignored?
+#  main = "Distribution of Subreddits and Mods"
+#  
+#)
+```
+
+```{r}
+ggraph(reddit.ig, 'unrooted') +
+  geom_node_point(aes(colour=V(reddit.ig)$category, shape = V(reddit.ig)$shape), show.legend = F)+
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_link()
+```
+
+As it turns out graphing this network is incredibly difficult. Getting any sort of graphs to work effectively is a slow process, with disappointing results often. Statnet could not load anything into memory.GGnet seems to work fairly well, but the kk layout which normaly isn't as clustered consumes too much memory (maybe there's a trick to this?) The good news is after a lot of fiddling I have a cleaned dataset, and have figured out generally how to make all the node attributes and my edgelist play together nicely. Unfortuantely there isn't a more tangible result for the amount of different layouts and algorithms that were tried so far except some really grouped graphs. An alternative solution would also be to truncate my dataset but this likely wouldn't be as insightful. Based on my current albeit hard to interpret graphs there does seem to be some tangible patterns that need to be explored. There are definitely some group clusters. 
+
+
+
+
