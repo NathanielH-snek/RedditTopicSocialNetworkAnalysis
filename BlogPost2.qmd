@@ -27,12 +27,12 @@ Load in the data
 rm(list=ls())
 
 #MacOSPaths
-#redditData <- read.csv("~/Documents/School/DACSS/695N/NetworkAnalysisFinalProject/Data/edgelist.csv")
-#subredditAttr <- read.csv("~/Documents/School/DACSS/695N/NetworkAnalysisFinalProject/Data/edgeattr.csv")
+redditData <- read.csv("~/Documents/School/DACSS/695N/NetworkAnalysisFinalProject/Data/edgelist.csv")
+nodeAttr <- read.csv("~/Documents/School/DACSS/695N/NetworkAnalysisFinalProject/Data/nodeattr.csv")
 
 #LinuxPaths
-redditData <- read.csv("~/Developer/NetworkAnalysisFinal-master/Data/edgelist.csv")
-nodeAttr <- read.csv("~/Developer/NetworkAnalysisFinal-master/Data/nodeattr.csv")
+#redditData <- read.csv("~/Developer/NetworkAnalysisFinal-master/Data/edgelist.csv")
+#nodeAttr <- read.csv("~/Developer/NetworkAnalysisFinal-master/Data/nodeattr.csv")
 ```
 
 Let's get some really basic descriptives
@@ -44,6 +44,8 @@ library(GGally)
 library(network)
 library(bipartite)
 library(ggraph)
+library(tidygraph)
+library(dplyr)
 ```
 
 ```{r}
@@ -69,6 +71,7 @@ V(reddit.ig)$type <- nodeAttr$Type
 V(reddit.ig)$category <- nodeAttr$Category
 V(reddit.ig)$subcount <- nodeAttr$SubscriberCount
 V(reddit.ig)$nummods <- nodeAttr$NumberOfModerators
+reddit.ig
 ```
 
 ```{r}
@@ -86,6 +89,7 @@ ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
   theme(
     plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins
   )
+ggsave(filename = "plot1.png", width = 8.53, height = 4.8, units = "in", dpi = 300)
 ```
 
 ```{r}
@@ -95,40 +99,94 @@ ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
   #geom_node_label(data = V(reddit.ig)$vertexlabel)
   geom_edge_diagonal() +
   theme(
-    plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins
+    plot.margin = unit(c(1, 1, 1, 1), "cm"),  # Increase plot margins
+    legend.position = "right", 
+    legend.key.size = unit(0.5, "cm")
+  ) +
+  guides(
+    shape = "none"
   )
-```
+
+ggsave(filename = "plot.png", width = 8.53, height = 4.8, units = "in", dpi = 300)
 ```
 
 
 ```{r}
-#plot(
-#  x = reddit.ig,
-#  #layout = layout_with_fr(reddit.ig,dim=3), 
-#  layout = layout_with_fr, 
-#  vertex.size=0.5,
-#  #vertex.label=V(reddit.ig)$vertexlabel,
-#  vertex.label = NA,
-#  #curved=T,
-#  #vertex.label.cex = .8,
-#  #vertex.label.dist = 1.5,
-#  #vertex.label.color = "black",
-#  vertex.color = V(reddit.ig)$color,
-#  #Why is color ignored?
-#  main = "Distribution of Subreddits and Mods"
-#  
-#)
+#dgreddit.ig <- decompose(reddit.ig)
+#ggraph(graph_tidy, 'igraph', algorithm = 'tree') +
+#  geom_node_point(aes(colour=V(graph_tidy)$category, shape = V(graph_tidy)$shape), show.legend = F)+
+#  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+#  geom_edge_diagonal() +
+#  geom_node_text(label=V(graph_tidy)$name) +
+#  theme(
+#    plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins
+#  )
 ```
 
 ```{r}
-ggraph(reddit.ig, 'unrooted') +
+#graphReddit <- as_tbl_graph(reddit.ig)
+
+#target_nodes <- graphReddit %>% 
+#  activate(nodes) %>% 
+#  filter(category == "history")
+
+#target_ids <- target_nodes %>%
+#  pull(name)
+
+#associated_nodes <- graphReddit %>%
+#  activate(nodes) %>%
+#  filter(name %in% neighbors(reddit.ig, target_ids))
+#  #bind_rows(target_nodes)  # Combine with target nodes if you want to keep them
+
+#associated_nodes
+```
+
+```{r}
+ggraph(reddit.ig, layout = 'fr', niter=1000) +
+#ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
   geom_node_point(aes(colour=V(reddit.ig)$category, shape = V(reddit.ig)$shape), show.legend = F)+
   #geom_node_label(data = V(reddit.ig)$vertexlabel)
-  geom_edge_link()
+  geom_edge_link() +
+  theme(
+    plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins
+  )
+ggsave(filename = "plot2.png", width = 8.53, height = 4.8, units = "in", dpi = 300)
+```
+
+```{r}
+degrees <- igraph::degree(reddit.ig)
+
+# Identify vertices to keep (degree > 2)
+verticesToKeep <- V(reddit.ig)[degrees > 2]
+
+# Create a new graph with only the vertices that have more than 2 connections
+filteredGraph <- subgraph(reddit.ig, verticesToKeep)
+
+filteredGraph <- igraph::delete.vertices(filteredGraph,igraph::degree(filteredGraph) == 0)
+
+ggraph(filteredGraph, layout = 'kk') +
+#ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(filteredGraph)$category, shape = V(filteredGraph)$shape), show.legend = F)+
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_fan(aes(show.legend = F)) +
+  theme(
+    plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins
+  )
+ggsave(filename = "plot3.png", width = 8.53, height = 4.8, units = "in", dpi = 300)
 ```
 
 As it turns out graphing this network is incredibly difficult. Getting any sort of graphs to work effectively is a slow process, with disappointing results often. Statnet could not load anything into memory.GGnet seems to work fairly well, but the kk layout which normaly isn't as clustered consumes too much memory (maybe there's a trick to this?) The good news is after a lot of fiddling I have a cleaned dataset, and have figured out generally how to make all the node attributes and my edgelist play together nicely. Unfortuantely there isn't a more tangible result for the amount of different layouts and algorithms that were tried so far except some really grouped graphs. An alternative solution would also be to truncate my dataset but this likely wouldn't be as insightful. Based on my current albeit hard to interpret graphs there does seem to be some tangible patterns that need to be explored. There are definitely some group clusters. 
 
+```{r}
+ggraph(filteredGraph, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(filteredGraph)$category, shape = V(filteredGraph)$shape), show.legend = F)+
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_diagonal() +
+  theme(
+    plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins
+  )
+ggsave(filename = "plot4.png", width = 8.53, height = 4.8, units = "in", dpi = 300)
+```
 
 
 
