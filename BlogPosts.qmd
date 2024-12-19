@@ -1,0 +1,606 @@
+---
+title: "BlogPost#4"
+format: 
+  docx:
+    toc: true
+    toc-depth: 2
+    toc-title: Contents
+    toc-location: left
+    code-fold: false
+    html-math-method: katex
+    theme: flatly
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    citations-hover: true
+    footnotes-hover: true
+    font-size: 80%
+editor: source
+---
+
+# Initial Exploration
+
+The beginning focuses primarily on visualization, with some small attention to inherent network attributes. So let's get that network graph first!
+
+Load in the data
+```{r}
+rm(list=ls())
+
+#MacOSPaths
+redditData <- read.csv("~/Documents/School/695N/NetworkAnalysisFinalProject/Data/edgelist.csv")
+nodeAttr <- read.csv("~/Documents/School/695N/NetworkAnalysisFinalProject/Data/nodeattr.csv")
+
+set.seed(69)
+#LinuxPaths
+#redditData <- read.csv("~/Developer/NetworkAnalysisFinal-master/Data/edgelist.csv")
+#nodeAttr <- read.csv("~/Developer/NetworkAnalysisFinal-master/Data/nodeattr.csv")
+```
+
+Let's get some really basic descriptives
+```{r}
+library(glue)
+library(dplyr)
+library(igraph)
+library(GGally)
+library(network)
+library(bipartite)
+library(ggraph)
+library(tidygraph)
+library(dplyr)
+library(RColorBrewer)
+library(tidyr)
+```
+
+```{r}
+#Remove duplicated subreddits and keep only the first category
+nodeAttr$Name_Lower <- tolower(nodeAttr$Name)
+nodeAttr <- nodeAttr[!duplicated(nodeAttr$Name_Lower), ]
+
+#Clean the redditData list to match
+redditData <- redditData %>%
+  filter(Subreddit %in% nodeAttr$Name)
+```
+
+
+```{r}
+glue('Number of Entries: {dim(redditData)[1]}')
+glue('Number of Unique Mods: {sum(nodeAttr$Type == "mod")}')
+glue('Number of Subreddits: {sum(nodeAttr$Type == "sub")}')
+```
+
+There's about a couple thousand subreddits that were
+
+Trying the igraph way
+```{r}
+reddit.ig <- graph_from_data_frame(
+  redditData,
+  directed = F
+)
+reddit.ig
+```
+
+```{r}
+nodeAttr <- nodeAttr[match(V(reddit.ig)$name, nodeAttr$Name), ]
+sumData <- summary(nodeAttr$SubscriberCount)
+min <- sumData['Min.']
+q1 <- sumData['1st Qu.']
+median <- sumData['Median']
+q3 <- sumData['3rd Qu.']
+max <- sumData['Max.']
+
+nodeAttr <- nodeAttr %>%
+  mutate(Size = case_when(
+    SubscriberCount < q1 ~ 'tiny',
+    SubscriberCount >= q1 & SubscriberCount < median ~ 'small',
+    SubscriberCount >= median & SubscriberCount < q3 ~ 'medium',
+    SubscriberCount >= q3 ~ 'large'
+  )
+)
+V(reddit.ig)$type <- nodeAttr$Type
+V(reddit.ig)$category <- nodeAttr$Category
+V(reddit.ig)$subcount <- nodeAttr$SubscriberCount
+V(reddit.ig)$nummods <- nodeAttr$NumberOfModerators
+V(reddit.ig)$subsize <- nodeAttr$Size
+reddit.ig
+```
+
+```{r}
+V(reddit.ig)$shape <- ifelse(V(reddit.ig)$type == "mod", "circle","triangle")
+V(reddit.ig)$color <- ifelse(V(reddit.ig)$type == "mod", "blue","red")
+V(reddit.ig)$vertexlabel <- ifelse(V(reddit.ig)$type == "mod", "", V(reddit.ig)$name)
+```
+
+```{r}
+ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(reddit.ig)$category, shape = V(reddit.ig)$shape), show.legend = F) +
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_diagonal()
+```
+
+```{r}
+#ggraph(reddit.ig, layout = 'fr', niter=1000) +
+ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(reddit.ig)$category, shape = V(reddit.ig)$shape), show.legend = T)+
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_diagonal() +
+  theme(
+    legend.position = "right", 
+    legend.key.size = unit(0.5, "cm")
+  ) +
+  guides(
+    shape = "none"
+  )
+```
+
+
+```{r}
+ggraph(reddit.ig, layout = 'fr', niter=1000) +
+#ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(reddit.ig)$category, shape = V(reddit.ig)$shape), show.legend = F)+
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_link()
+```
+
+```{r}
+degrees <- igraph::degree(reddit.ig)
+
+# Identify vertices to keep (degree > 2)
+verticesToKeep <- V(reddit.ig)[degrees > 2]
+
+# Create a new graph with only the vertices that have more than 2 connections
+filteredGraph <- subgraph(reddit.ig, verticesToKeep)
+
+filteredGraph <- igraph::delete.vertices(filteredGraph,igraph::degree(filteredGraph) == 0)
+
+ggraph(filteredGraph, layout = 'kk') +
+#ggraph(reddit.ig, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(filteredGraph)$category, shape = V(filteredGraph)$shape), show.legend = F)+
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_fan(aes(show.legend = F))
+```
+
+As it turns out graphing this network is incredibly difficult. Getting any sort of graphs to work effectively is a slow process, with disappointing results often. Statnet could not load anything into memory.GGnet seems to work fairly well, but the kk layout which normaly isn't as clustered consumes too much memory (maybe there's a trick to this?) The good news is after a lot of fiddling I have a cleaned dataset, and have figured out generally how to make all the node attributes and my edgelist play together nicely. Unfortuantely there isn't a more tangible result for the amount of different layouts and algorithms that were tried so far except some really grouped graphs. An alternative solution would also be to truncate my dataset but this likely wouldn't be as insightful. Based on my current albeit hard to interpret graphs there does seem to be some tangible patterns that need to be explored. There are definitely some group clusters. 
+
+```{r}
+ggraph(filteredGraph, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(filteredGraph)$category, shape = V(filteredGraph)$shape), show.legend = F) +
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_diagonal()
+```
+It looks like the data is quite messy overall from basic visualization. Instead of doing some actual analysis on the current two mode network, and since I lack node attributes for moderators, lets just use a one mode network of just the subreddits since that's what we're interested in primarily anyway. 
+```{r}
+redditTypeAdj.ig <- reddit.ig
+V(redditTypeAdj.ig)$type <- ifelse(V(redditTypeAdj.ig)$type == "sub", TRUE, FALSE)
+
+redditProj.ig <- bipartite_projection(
+  redditTypeAdj.ig,
+)
+redditSubsProj.ig <- redditProj.ig$proj2
+redditSubsProj.ig
+```
+Ok lets try plotting our shiny new one mode network
+```{r}
+ggnet2(
+  redditSubsProj.ig,
+  node.size = 1,
+  node.color = "subsize",
+  palette = "Dark2"
+  ) +
+  guides(
+    #color = FALSE, 
+    size = FALSE
+)
+```
+Well that looks slightly more interesting, lets remove isolates and also size nodes by their degree.
+```{r}
+ggnet2(
+  redditSubsProj.ig,
+  mode = 'kamadakawai',
+  node.color = "subsize",
+  palette = "Dark2",
+  size.min = 1,
+  size = 'degree',
+  ) +
+  guides(
+    #color = FALSE, 
+    size = FALSE
+)
+```
+Turns out there are 2850 isolates out of 6916 subreddits, that's interesting. I wonder what is causing this. Perhaps community detection will provide some insight. Just a little more fun with visualization.
+
+```{r}
+ggraph(redditSubsProj.ig, 'igraph', algorithm = 'tree') +
+  geom_node_point(aes(colour=V(redditSubsProj.ig)$category, shape = V(redditSubsProj.ig)$size)) +
+  #geom_node_label(data = V(reddit.ig)$vertexlabel)
+  geom_edge_diagonal() +
+  guides(
+    color = FALSE
+  )
+```
+
+Ok lets actually get some network metrics, after all visualization can only get us so far.
+```{r}
+#Clean unneeded attribute
+redditSubsProj.ig <- delete_vertex_attr(redditSubsProj.ig, 'shape')
+#Component information
+compdata <- igraph::components(redditSubsProj.ig)
+compdata$no
+```
+
+```{r}
+summary(compdata$csize)
+```
+
+```{r}
+#Unique Component Sizes
+unique(compdata$csize)
+```
+
+```{r}
+#Degree stats
+summary(igraph::degree(redditSubsProj.ig))
+```
+## Community Detection
+I've chosen the walktrap algorithm primarily because it handles weights well and the network is weighted. 
+```{r}
+redditWalktrap <- cluster_walktrap(
+  redditSubsProj.ig,
+  weights = V(redditSubsProj.ig)$weight
+)
+redditWalktrap
+
+```
+Well that's certainly more communities than my proposed. Note the modularity of 0.51 Let's try a larger step value.
+
+```{r}
+redditWalktrap2 <- cluster_walktrap(
+  redditSubsProj.ig,
+  weights = V(redditSubsProj.ig)$weight,
+  steps = 10
+)
+redditWalktrap2
+V(redditSubsProj.ig)$wt <- redditWalktrap2$membership
+```
+
+Interestingly that did reduce the number of communities but didn't significantly change the modularity as it increased by 0.01. Lets do a little plot.
+
+```{r}
+V(redditSubsProj.ig)$wt <- redditWalktrap$membership
+
+
+mean(sizes(redditWalktrap))
+median(sizes(redditWalktrap))
+```
+
+```{r}
+plot(
+  redditWalktrap,
+  redditSubsProj.ig,
+  vertex.size = 1,
+  vertex.label = NA,
+  layout = layout_with_kk
+)
+```
+Fun! It's of course quite messy. I need to try to plot this without communities that are singular, but I need to figure out how to do this in R. Let's try just subsetting the graph by removing nodes that have a degree less than one 
+```{r}
+V(redditSubsProj.ig)$degree <- igraph::degree(redditSubsProj.ig)
+redditSubgraph.ig <- induced_subgraph(redditSubsProj.ig,V(redditSubsProj.ig)$degree > 2)
+```
+Ok now a quick plot of the subgraph
+```{r}
+ggnet2(
+  redditSubgraph.ig,
+  node.color = "subsize",
+  palette = "Dark2",
+  size.min = 1,
+  size = 'degree',
+  ) +
+  guides(
+    #color = FALSE, 
+    size = FALSE
+)
+```
+```{r}
+ggnet2(
+  redditSubgraph.ig,
+  node.color = "category",
+  size.min = 1,
+  size = 'degree',
+  ) +
+  theme(legend.position = "none")
+```
+
+```{r}
+redditSubWalktrap <- cluster_walktrap(
+  redditSubgraph.ig,
+  weights = V(redditSubgraph.ig)$weight
+)
+redditSubWalktrap
+
+V(redditSubgraph.ig)$wt <- redditSubWalktrap$membership
+```
+```{r}
+plot(
+  redditSubWalktrap,
+  redditSubgraph.ig,
+  vertex.size = 1,
+  vertex.label = NA,
+  layout = layout_with_kk
+) 
+```
+Using cosmograph here is some better, vis. Unfortunately there isn't an easy way to embed javascript in the quarto doc, but I was able to capture some images. These are the reduced subgraph projected to the one mode network where the ties are the number of shared mods (reflected in their size) and the colors are the category. 
+
+![FullPic](~/Documents/School/695N/NetworkAnalysisFinalProject/fullpic.png)
+![Cluster1](~/Documents/School/695N/NetworkAnalysisFinalProject/cluster1.png)
+![Cluster2](~/Documents/School/695N/NetworkAnalysisFinalProject/cluster2.png)
+# Block Detection
+TODO
+```{r}
+library(statnet)
+library(intergraph)
+redditSubgraph.stat <- asNetwork(redditSubgraph.ig)
+redditSubgraph.stat
+```
+
+# Statistical Measures
+```{r}
+redditSubgraph.se <- equiv.clust(
+  redditSubgraph.stat,
+  equiv.fun = "sedist",
+  method = "hamming",
+  mode = "graph"
+)
+```
+
+```{r}
+plot(redditSubgraph.se, labels = redditSubgraph.se$glabels, cex=0.2)
+```
+```{r}
+ggraph(redditSubgraph.se$cluster, 'treemap', circular=T) +
+  geom_node_tile(aes(fill = depth), size = 0.25) +
+  ggtitle('Block Modeling')
+```
+```{r}
+#empty_labels <- rep("", 5441 - 2721)
+#leaf_labels <- redditSubgraph.se$glabels
+#textlabs = c(empty_labels,leaf_labels)
+
+#ggraph(redditSubgraph.se$cluster, 'treemap', circular=T) +
+#  geom_node_tile(aes(fill = depth), size = 0.25) +
+#  geom_node_text(aes(label = textlabs), size = 0.5, color = "black", hjust = 1)
+```
+
+
+Yet another illegible graph!
+```{r}
+plot.block<-function(x=blk_mod, main=NULL, cex.lab=1){
+  plot.sociomatrix(x$blocked.data, labels=list(x$plabels,x$plabels),
+                   main=main, drawlines = FALSE, cex.lab=cex.lab)
+  for (j in 2:length(x$plabels)) if (x$block.membership[j] !=
+                                     x$block.membership[j-1]) 
+    abline(v = j - 0.5, h = j - 0.5, lty = 3, xpd=FALSE)
+}
+```
+
+Attempting to run this cell below for about 10 mins didn't really do much so I gave up on it. I think if I want to incorporate anything interesting about the graph I need to take random communites (like maybe the largest) or just put it into a table of some sort. For just making sure I submit something for the blog post I'll omit that for now. 
+```{r}
+# 
+#redditSubgraph.blk <- blockmodel(redditSubgraph.stat, redditSubgraph.se, k=10)
+#plot.block(
+#  redditSubgraph.blk,
+#  main = "Reddit Subgraph 10 Partitions",
+#  cex.lab = 0.5
+#)
+```
+
+```{r}
+glue("Network Density: {edge_density(redditSubgraph.ig)}")
+glue("Network Degree Centralization {centr_degree(redditSubgraph.ig, loops = FALSE)$centralization}")
+glue("Betweenness Centralization {centr_betw(redditSubgraph.ig)$centralization}")
+#glue("Closeness Centralization {centr_clo(redditSubgraph.ig)$centralization}")
+#somehow there are NaN values which is odd. 
+```
+Generally there are a few very important nodes and a LOT of not so important nodes, generally the network is fairly decentralized which sort of makes sense for the structure of Reddit. Perhaps some mathmatical modeling to be included in my poster.
+
+```{r}
+eigenCentrality <- eigen_centrality(redditSubsProj.ig)
+V(redditSubsProj.ig)$eigen <- eigenCentrality$vector
+```
+
+```{r}
+nodeCent <- data.frame(
+  V(redditSubsProj.ig)$name,
+  V(redditSubsProj.ig)$subsize,
+  V(redditSubsProj.ig)$eigen,
+  V(redditSubsProj.ig)$category,
+  V(redditSubsProj.ig)$wt
+)
+nodeCent <- setNames(nodeCent, c('Name','Size','Eigen','Category', 'Community'))
+```
+
+```{r}
+centBySize <- nodeCent %>%
+  group_by(Size) %>%
+  summarise(MeanEigen = mean(Eigen))
+```
+
+```{r}
+ggplot(centBySize, aes(x = factor(Size), y = MeanEigen, fill = factor(Size))) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(x = "Subreddit Size", y = "Mean Eigenvector Centrality", title = "Mean Eigenvector Centrality by Subreddit Size") +
+  theme_minimal()
+```
+ 
+```{r}
+centByCat <- nodeCent %>%
+  group_by(Category) %>%
+  summarise(MeanEigen = mean(Eigen))
+
+ggplot(centByCat, aes(x = reorder(factor(Category), MeanEigen), y = MeanEigen, fill = reorder(factor(Category), MeanEigen))) +
+  geom_bar(stat = "identity", show.legend = FALSE,) +
+  labs(x = "Subreddit Category", y = "Mean Eigenvector Centrality", title = "Mean Eigenvector Centrality by Predetermined Category") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+```{r}
+hist(centByCat$MeanEigen)
+```
+
+
+```{r}
+centByCom <- nodeCent %>%
+  group_by(Community) %>%
+  summarise(MeanEigen = mean(Eigen))
+
+ggplot(centByCom, aes(y = MeanEigen, x = Community)) +
+  geom_segment(aes(x=Community, xend = Community, y = 0, yend = MeanEigen), color = "blue") +
+  geom_point(size = 1, color = "red") +
+  labs(x = "Walktrap Communitry", y = "Mean Eigenvector Centrality", title = "Mean Eigenvector Centrality by Community") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  #scale_x_continuous(breaks=seq(1,355,1))
+```
+
+```{r}
+top3Comm <- nodeCent %>%
+  filter(Community %in% c(18,37,39)) %>%
+  group_by(Community) %>%
+  summarise(members = paste(Name, collapse = ", "), .groups = 'drop') %>%
+  arrange(desc(Community))
+```
+
+```{r}
+words1 <- strsplit(top3Comm$members[1], ", ")
+words2 <- strsplit(top3Comm$members[2], ", ")
+words3 <- strsplit(top3Comm$members[3], ", ")
+commOfPower <- length(words1[[1]]) + length(words2[[1]]) + length(words3[[1]])
+```
+
+```{r}
+top3CommPercent <- round(1067 / 6693 * 100, digits=2)
+restPercent <- (100 - top3CommPercent)
+
+data <- data.frame(
+  Category = c("Top3", "Other"),
+  Percentage = c(top3CommPercent, restPercent)
+)
+
+ggplot(data, aes(x = Category, y = Percentage, fill = Category)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(x = "Category", y = "Percentage", title = "Percentage of Subreddits in the Top Three Communities by Eigenvalue") +
+  geom_text(aes(label = paste(Percentage, "%")), vjust = -0.5) + 
+  theme_minimal()
+```
+
+
+```{r}
+library(gt)
+```
+
+```{r}
+tabl <- gt(top3Comm)
+
+tabl <- 
+  tabl |>
+  tab_header(
+    title = "Top Community Membership",
+    subtitle = "The top three communities by average eigenvector centrality determined by the walktrap algorithm"
+  )
+gtsave(tabl, 'commemb.pdf')
+```
+
+```{r}
+graphStats <- data.frame(
+  Metric = c(
+    "Number of Nodes",
+    "Number of Ties",
+    "Average Degree",
+    "Network Density",
+    "Network Degree Centralization",
+    "Betweenness Centralization"
+  ),
+  Value = c (
+    vcount(redditSubsProj.ig),
+    ecount(redditSubsProj.ig),
+    mean(igraph::degree(redditSubsProj.ig)),
+    edge_density(redditSubsProj.ig),
+    centr_degree(redditSubsProj.ig, loops = FALSE)$centralization,
+    centr_betw(redditSubsProj.ig)$centralization
+  )
+)
+graphStats$Value <- format(graphStats$Value, scientific = F)
+```
+
+```{r}
+df_long <- graphStats %>%
+  pivot_longer(cols = -Metric, names_to = "Category", values_to = "Value")
+```
+
+
+```{r}
+statsDat <- gt(df_long)
+```
+
+```{r}
+statsDat <- 
+  statsDat |>
+  tab_header(
+    title = "Network Descriptives",
+    subtitle = "Projected one mode network descriptives"
+  )
+gtsave(statsDat, 'netstatdesc.pdf')
+```
+
+```{r}
+eigenvectorCent <- V(redditSubsProj.ig)$eigen
+topFivePower <- order(eigenvectorCent, decreasing = TRUE)[1:5]
+
+topFiveDat <- data.frame(
+  Subreddit = V(redditSubsProj.ig)$name[topFivePower],
+  Eigenvector_Centrality = V(redditSubsProj.ig)$eigen[topFivePower],
+  Category = V(redditSubsProj.ig)$category[topFivePower], 
+  Number_Mods = V(redditSubsProj.ig)$nummods[topFivePower],
+  Walktrap_Community = V(redditSubsProj.ig)$wt[topFivePower],
+  Subscriber_Count = V(redditSubsProj.ig)$subcount[topFivePower]
+)
+
+print(topFiveDat)
+```
+
+```{r}
+#sanity <- data.frame(
+#  Eigen = V(redditSubsProj.ig)$eigen
+#fin)
+```
+
+```{r}
+#duplicates <- nodeAttr[duplicated(nodeAttr$Name_Lower) | duplicated(nodeAttr$Name_Lower, fromLast = TRUE), ]
+#duplicates <- duplicates[!is.na(duplicates$SubscriberCount), ]
+
+# Print the rows with duplicate values
+#print(duplicates)
+```
+
+```{r}
+tabl <- gt(topFiveDat)
+
+tabl <- 
+  tabl |>
+  tab_header(
+    title = "Top Five Subreddits by Eigenvector Centrality",
+    subtitle = "Subreddits with the highest Eigenvector Centrality metric"
+  ) |>
+  text_transform(
+    locations = cells_column_labels(),
+    fn = function(x) { 
+      # Word wrapping column labels
+      strwrap(x, width = 15)
+    }
+  ) |>
+  tab_options(
+    table.font.size = 10 
+  )
+gtsave(tabl, 'topfive.pdf')
+```
+
+
